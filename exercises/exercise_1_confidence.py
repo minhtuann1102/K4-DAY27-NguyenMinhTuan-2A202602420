@@ -40,22 +40,48 @@ def node_fetch_pr(state: ReviewState) -> dict:
 
 def node_analyze(state: ReviewState) -> dict:
     console.print("[cyan]→ analyze[/cyan]")
-    # TODO: call the LLM with structured output PRAnalysis.
-    # Hint:  llm = get_llm().with_structured_output(PRAnalysis)
-    #        analysis = llm.invoke([...])
-    #        return {"analysis": analysis}
-    # When implemented, wrap the call in:
-    #        with console.status("[dim]LLM thinking...[/dim]"):
-    #            analysis = llm.invoke([...])
-    raise NotImplementedError("Implement node_analyze")
+    llm = get_llm().with_structured_output(PRAnalysis)
+    prompt = f"""You are a senior security-focused software engineer reviewing a pull request.
+
+PR Title: {state['pr_title']}
+Files changed: {', '.join(state['pr_files'])}
+
+Diff:
+{state['pr_diff']}
+
+Analyze this PR thoroughly. Pay special attention to:
+- Security vulnerabilities (weak hashing, SQL injection, hardcoded secrets, plaintext credentials)
+- Authentication and authorization issues
+- Data validation and sanitization problems
+- Missing tests for new code
+
+Confidence scoring guidelines:
+- Score > 0.73: Simple, low-risk change with no security concerns (typos, docs, trivial refactors)
+- Score 0.58–0.72: Moderate risk, needs human approval
+- Score < 0.58: HIGH RISK — security issues, auth changes, SQL injection, weak crypto (MD5/SHA1 passwords), hardcoded tokens, no tests. You MUST escalate these.
+
+If you detect security issues like MD5/SHA1 password hashing, SQL injection, plaintext token storage, or hardcoded credentials, your confidence MUST be below 0.58.
+
+Populate escalation_questions with specific technical questions for the reviewer if confidence < 0.58."""
+
+    with console.status("[dim]LLM thinking...[/dim]"):
+        analysis = llm.invoke([{"role": "user", "content": prompt}])
+
+    console.print(f"  [green]✓[/green] confidence = {analysis.confidence:.0%}")
+    return {"analysis": analysis}
 
 
 def node_route(state: ReviewState) -> dict:
     console.print("[cyan]→ route[/cyan]")
-    # TODO: read state["analysis"].confidence and return
-    #       {"decision": "auto_approve" | "human_approval" | "escalate"}
-    # Thresholds provided: AUTO_APPROVE_THRESHOLD (0.85) and ESCALATE_THRESHOLD (0.60).
-    raise NotImplementedError("Implement node_route")
+    confidence = state["analysis"].confidence
+    if confidence >= AUTO_APPROVE_THRESHOLD:
+        decision = "auto_approve"
+    elif confidence < ESCALATE_THRESHOLD:
+        decision = "escalate"
+    else:
+        decision = "human_approval"
+    console.print(f"  [green]✓[/green] decision = {decision}")
+    return {"decision": decision}
 
 
 def node_auto_approve(state: ReviewState) -> dict:
@@ -75,11 +101,36 @@ def node_escalate(state: ReviewState) -> dict:
 
 def build_graph():
     g = StateGraph(ReviewState)
-    # TODO: add_node for the 6 nodes above (fetch_pr, analyze, route, auto_approve, human_approval, escalate)
-    # TODO: add_edge from START → fetch_pr → analyze → route
-    # TODO: add_conditional_edges on "route" with mapping
-    #       {"auto_approve": "auto_approve", "human_approval": "human_approval", "escalate": "escalate"}
-    # TODO: add_edge from each terminal node → END
+
+    # Add nodes
+    g.add_node("fetch_pr", node_fetch_pr)
+    g.add_node("analyze", node_analyze)
+    g.add_node("route", node_route)
+    g.add_node("auto_approve", node_auto_approve)
+    g.add_node("human_approval", node_human_approval)
+    g.add_node("escalate", node_escalate)
+
+    # Edges: START → fetch_pr → analyze → route
+    g.add_edge(START, "fetch_pr")
+    g.add_edge("fetch_pr", "analyze")
+    g.add_edge("analyze", "route")
+
+    # Conditional routing from "route" node
+    g.add_conditional_edges(
+        "route",
+        lambda state: state["decision"],
+        {
+            "auto_approve": "auto_approve",
+            "human_approval": "human_approval",
+            "escalate": "escalate",
+        },
+    )
+
+    # Terminal nodes → END
+    g.add_edge("auto_approve", END)
+    g.add_edge("human_approval", END)
+    g.add_edge("escalate", END)
+
     return g.compile()
 
 

@@ -2,6 +2,7 @@
 
 import os
 
+import httpx
 from langchain_openai import ChatOpenAI
 
 
@@ -14,4 +15,5 @@ def get_llm(temperature: float = 0.2) -> ChatOpenAI:
         base_url=os.environ.get("LLM_BASE_URL", "https://openrouter.ai/api/v1"),
         api_key=api_key,
         temperature=temperature,
+        http_client=httpx.Client(verify=False),
     )
