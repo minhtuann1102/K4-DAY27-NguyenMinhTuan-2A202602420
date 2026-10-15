@@ -43,11 +43,19 @@ def node_analyze(state):
     with console.status("[dim]LLM reviewing the diff...[/dim]"):
         analysis = llm.invoke([
             {"role": "system", "content": (
-                "Senior reviewer. Structured output. "
-                # TODO: add an instruction: if confidence < 60%, populate escalation_questions
-                # with 2–4 specific, context-rich questions (reference which file/section in the diff).
+                "You are a senior security-focused software engineer reviewing a pull request. "
+                "Pay special attention to: security vulnerabilities (weak hashing like MD5/SHA1, "
+                "SQL injection, hardcoded secrets, plaintext credentials), auth/authz issues, "
+                "missing input validation, and missing tests. "
+                "Confidence scoring: >0.73 = low-risk trivial change; 0.58–0.72 = moderate risk; "
+                "<0.58 = HIGH RISK (security issues, auth changes, SQL injection, weak crypto). "
+                "If you detect MD5/SHA1 password hashing, SQL injection, plaintext tokens, or "
+                "hardcoded credentials, confidence MUST be below 0.58. "
+                "When confidence < 0.58, populate escalation_questions with 2–4 specific, "
+                "context-rich questions that reference the exact file and line/section in the diff "
+                "(e.g. 'In auth.py line 23, why is MD5 used for password hashing instead of bcrypt?')."
             )},
-            {"role": "user", "content": f"Title: {state['pr_title']}\nDiff:\n{state['pr_diff']}"},
+            {"role": "user", "content": f"Title: {state['pr_title']}\nFiles: {', '.join(state['pr_files'])}\nDiff:\n{state['pr_diff']}"},
         ])
     console.print(f"  [green]✓[/green] confidence={analysis.confidence:.0%}, {len(analysis.escalation_questions)} question(s)")
     return {"analysis": analysis}
@@ -71,22 +79,51 @@ def node_escalate(state: ReviewState) -> dict:
         # fallback when the LLM didn't generate any questions
         questions = ["What is the intent of this PR?", "Any migration concerns?"]
 
-    # TODO: call interrupt(payload) where payload kind="escalation" contains:
-    #       pr_url, confidence, confidence_reasoning, summary, risk_factors, questions.
-    # answers = interrupt({...})
-    # return {"escalation_answers": answers}
-    raise NotImplementedError("Call interrupt() with an escalation payload")
+    answers = interrupt({
+        "kind": "escalation",
+        "pr_url": state["pr_url"],
+        "confidence": a.confidence,
+        "confidence_reasoning": a.confidence_reasoning,
+        "summary": a.summary,
+        "risk_factors": a.risk_factors,
+        "questions": questions,
+    })
+    return {"escalation_answers": answers}
 
 
 def node_synthesize(state: ReviewState) -> dict:
     """Re-prompt LLM with the reviewer's answers and produce a refined review."""
-    # TODO:
-    #   - read state["escalation_answers"] (dict[question, answer])
-    #   - call get_llm().with_structured_output(PRAnalysis).invoke(...) with a prompt
-    #     containing the original diff + initial analysis + Q&A.
-    #   - return {"analysis": refined}
-    # `node_commit` will then post the refined review to the PR.
-    raise NotImplementedError("Synthesize a refined PRAnalysis using the reviewer answers")
+    console.print("[cyan]→ synthesize[/cyan]")
+    a = state["analysis"]
+    answers = state["escalation_answers"] or {}
+
+    qa_text = "\n".join(f"Q: {q}\nA: {ans}" for q, ans in answers.items())
+
+    llm = get_llm().with_structured_output(PRAnalysis)
+    prompt = f"""You previously reviewed this PR and had low confidence ({a.confidence:.0%}).
+The human reviewer has now answered your escalation questions.
+
+Original diff:
+{state['pr_diff']}
+
+Your initial analysis:
+{a.summary}
+
+Risk factors identified:
+{chr(10).join(a.risk_factors)}
+
+Reviewer Q&A:
+{qa_text}
+
+Using the reviewer's answers as context, produce a refined review with updated confidence.
+Your confidence should reflect the new information — if the reviewer addressed your concerns,
+confidence can be higher."""
+
+    with console.status("[dim]LLM synthesizing refined review...[/dim]"):
+        refined = llm.invoke([{"role": "user", "content": prompt}])
+
+    console.print(f"  [green]✓[/green] refined confidence={refined.confidence:.0%}")
+    return {"analysis": refined}
 
 
 def node_human_approval(state):
@@ -161,7 +198,9 @@ def build_graph():
     g.add_edge("auto_approve", END)
     g.add_edge("human_approval", "commit")
     g.add_edge("commit", END)
-    # TODO: wire escalate → synthesize → commit  (commit already → END)
+    # wire escalate → synthesize → commit  (commit already → END)
+    g.add_edge("escalate", "synthesize")
+    g.add_edge("synthesize", "commit")
     return g.compile(checkpointer=MemorySaver())
 
 
