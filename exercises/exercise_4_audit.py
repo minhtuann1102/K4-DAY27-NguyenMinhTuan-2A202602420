@@ -44,7 +44,7 @@ from rich.panel import Panel
 from common.db import db_conn, db_path, write_audit_event
 from common.github import fetch_pr, post_review_comment
 from common.llm import get_llm
-from common.prompts import REVIEW_SYSTEM_PROMPT, review_user_message
+from common.prompts import REFINE_SYSTEM_PROMPT, REVIEW_SYSTEM_PROMPT, review_user_message
 from common.schemas import (
     AUTO_APPROVE_THRESHOLD,
     ESCALATE_THRESHOLD,
@@ -410,7 +410,7 @@ async def node_synthesize(state):
     llm = get_llm().with_structured_output(PRAnalysis)
     with console.status("[dim]LLM refining review with reviewer answers...[/dim]"):
         refined: PRAnalysis = await llm.ainvoke([
-            {"role": "system", "content": "Refine review with reviewer answers."},
+            {"role": "system", "content": REFINE_SYSTEM_PROMPT},
             {"role": "user", "content": (
                 f"Diff:\n{state['pr_diff']}\n\n"
                 f"Original analysis:\n{orig.summary}\n\n"

@@ -18,7 +18,7 @@ from rich.panel import Panel
 
 from common.github import fetch_pr, post_review_comment
 from common.llm import get_llm
-from common.prompts import REVIEW_SYSTEM_PROMPT, review_user_message
+from common.prompts import REFINE_SYSTEM_PROMPT, REVIEW_SYSTEM_PROMPT, review_user_message
 from common.schemas import (
     AUTO_APPROVE_THRESHOLD,
     ESCALATE_THRESHOLD,
@@ -111,7 +111,10 @@ Your confidence should reflect the new information — if the reviewer addressed
 confidence can be higher."""
 
     with console.status("[dim]LLM synthesizing refined review...[/dim]"):
-        refined = llm.invoke([{"role": "user", "content": prompt}])
+        refined = llm.invoke([
+            {"role": "system", "content": REFINE_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ])
 
     console.print(f"  [green]✓[/green] refined confidence={refined.confidence:.0%}")
     return {"analysis": refined}

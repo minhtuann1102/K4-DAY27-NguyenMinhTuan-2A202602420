@@ -47,6 +47,23 @@ otherwise.
 """
 
 
+# Same bands, plus how to treat the reviewer's answers. Without this the model
+# tends to jump to ~100% after any answer, even when the diff still contains
+# the flaw (an answer is a promise, not a fix).
+REFINE_SYSTEM_PROMPT = REVIEW_SYSTEM_PROMPT + """
+You are now refining an earlier review after a human reviewer answered your \
+escalation questions. Re-score `confidence` with the same bands.
+- An answer raises confidence only for the specific risk it actually resolves. \
+A stated intention to fix something later does not remove the risk from the \
+diff in front of you.
+- If a security, auth or data-loss risk is still present in the diff, \
+confidence must stay below 0.58.
+- Keep a comment for every issue that remains in the diff and mention the \
+reviewer's context in the summary.
+- Leave escalation_questions empty.
+"""
+
+
 def review_user_message(title: str, files: list[str], diff: str) -> str:
     """The user turn that accompanies REVIEW_SYSTEM_PROMPT."""
     return f"Title: {title}\nFiles: {', '.join(files)}\nDiff:\n{diff}"

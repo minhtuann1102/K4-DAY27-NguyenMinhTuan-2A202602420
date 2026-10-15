@@ -277,7 +277,7 @@ The skeleton wires up the Streamlit boilerplate (session state, page layout, top
 
 #### Confidence calibration
 
-All exercises share one rubric in `common/prompts.py`: ≥ 0.73 for mechanical changes (docs, typos, pure refactors), 0.58–0.72 for anything that changes persisted data or schema, adds behaviour without tests, or leaves an open question, and < 0.58 reserved for security, auth and data-loss risks. The analysis call uses `temperature=0` so a given PR routes the same way each time. With that rubric, PR #1 lands at ~65% (`human_approval`) and PR #2 at ~42% (`escalate`). Routing is still model-dependent — if your `LLM_MODEL` disagrees, adjust the rubric rather than the thresholds.
+All exercises share one rubric in `common/prompts.py`: ≥ 0.73 for mechanical changes (docs, typos, pure refactors), 0.58–0.72 for anything that changes persisted data or schema, adds behaviour without tests, or leaves an open question, and < 0.58 reserved for security, auth and data-loss risks. The analysis call uses `temperature=0` so a given PR routes the same way each time. The re-synthesis step after escalation uses the same bands (`REFINE_SYSTEM_PROMPT`): a reviewer's answer only raises confidence for the risk it actually resolves, so a flaw still present in the diff keeps the refined score below 0.58. With that rubric, PR #1 lands at ~65% (`human_approval`) and PR #2 at ~42% (`escalate`). Routing is still model-dependent — if your `LLM_MODEL` disagrees, adjust the rubric rather than the thresholds.
 
 #### Audit-trail notes
 
