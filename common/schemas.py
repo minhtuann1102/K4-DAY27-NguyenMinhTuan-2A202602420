@@ -133,7 +133,11 @@ class ReviewState(TypedDict, total=False):
     human_choice: HumanChoice | None
     human_feedback: str | None
     escalation_answers: dict[str, str] | None
+    edited_body: str | None            # reviewer-rewritten comment (choice == "edit")
+    refined_choice: HumanChoice | None  # reviewer's verdict on the refined review
+                                        # (only set when the confirm gate is enabled)
 
     # Populated by commit / final nodes
     posted_comment_body: str | None
+    posted_comment_url: str | None     # html_url of the comment on GitHub
     final_action: str | None

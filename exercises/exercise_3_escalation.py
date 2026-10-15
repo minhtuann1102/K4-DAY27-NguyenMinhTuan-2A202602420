@@ -1,6 +1,6 @@
 """Exercise 3 — Escalation branch with reviewer Q&A.
 
-When confidence < 60%, the agent doesn't ask approve/reject — it asks specific
+When confidence < 58%, the agent doesn't ask approve/reject — it asks specific
 clarifying questions and then synthesizes a refined review from the answers.
 """
 
@@ -18,6 +18,7 @@ from rich.panel import Panel
 
 from common.github import fetch_pr, post_review_comment
 from common.llm import get_llm
+from common.prompts import REVIEW_SYSTEM_PROMPT, review_user_message
 from common.schemas import (
     AUTO_APPROVE_THRESHOLD,
     ESCALATE_THRESHOLD,
@@ -39,23 +40,13 @@ def node_fetch_pr(state):
 
 def node_analyze(state):
     console.print("[cyan]→ analyze[/cyan]")
-    llm = get_llm().with_structured_output(PRAnalysis)
+    llm = get_llm(temperature=0).with_structured_output(PRAnalysis)
     with console.status("[dim]LLM reviewing the diff...[/dim]"):
         analysis = llm.invoke([
-            {"role": "system", "content": (
-                "You are a senior security-focused software engineer reviewing a pull request. "
-                "Pay special attention to: security vulnerabilities (weak hashing like MD5/SHA1, "
-                "SQL injection, hardcoded secrets, plaintext credentials), auth/authz issues, "
-                "missing input validation, and missing tests. "
-                "Confidence scoring: >0.73 = low-risk trivial change; 0.58–0.72 = moderate risk; "
-                "<0.58 = HIGH RISK (security issues, auth changes, SQL injection, weak crypto). "
-                "If you detect MD5/SHA1 password hashing, SQL injection, plaintext tokens, or "
-                "hardcoded credentials, confidence MUST be below 0.58. "
-                "When confidence < 0.58, populate escalation_questions with 2–4 specific, "
-                "context-rich questions that reference the exact file and line/section in the diff "
-                "(e.g. 'In auth.py line 23, why is MD5 used for password hashing instead of bcrypt?')."
+            {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
+            {"role": "user", "content": review_user_message(
+                state["pr_title"], state["pr_files"], state["pr_diff"],
             )},
-            {"role": "user", "content": f"Title: {state['pr_title']}\nFiles: {', '.join(state['pr_files'])}\nDiff:\n{state['pr_diff']}"},
         ])
     console.print(f"  [green]✓[/green] confidence={analysis.confidence:.0%}, {len(analysis.escalation_questions)} question(s)")
     return {"analysis": analysis}

@@ -16,6 +16,7 @@ from rich.console import Console
 
 from common.github import fetch_pr
 from common.llm import get_llm
+from common.prompts import REVIEW_SYSTEM_PROMPT, review_user_message
 from common.schemas import (
     AUTO_APPROVE_THRESHOLD,
     ESCALATE_THRESHOLD,
@@ -40,32 +41,16 @@ def node_fetch_pr(state: ReviewState) -> dict:
 
 def node_analyze(state: ReviewState) -> dict:
     console.print("[cyan]→ analyze[/cyan]")
-    llm = get_llm().with_structured_output(PRAnalysis)
-    prompt = f"""You are a senior security-focused software engineer reviewing a pull request.
-
-PR Title: {state['pr_title']}
-Files changed: {', '.join(state['pr_files'])}
-
-Diff:
-{state['pr_diff']}
-
-Analyze this PR thoroughly. Pay special attention to:
-- Security vulnerabilities (weak hashing, SQL injection, hardcoded secrets, plaintext credentials)
-- Authentication and authorization issues
-- Data validation and sanitization problems
-- Missing tests for new code
-
-Confidence scoring guidelines:
-- Score > 0.73: Simple, low-risk change with no security concerns (typos, docs, trivial refactors)
-- Score 0.58–0.72: Moderate risk, needs human approval
-- Score < 0.58: HIGH RISK — security issues, auth changes, SQL injection, weak crypto (MD5/SHA1 passwords), hardcoded tokens, no tests. You MUST escalate these.
-
-If you detect security issues like MD5/SHA1 password hashing, SQL injection, plaintext token storage, or hardcoded credentials, your confidence MUST be below 0.58.
-
-Populate escalation_questions with specific technical questions for the reviewer if confidence < 0.58."""
+    # temperature=0: routing should be reproducible for the same diff.
+    llm = get_llm(temperature=0).with_structured_output(PRAnalysis)
 
     with console.status("[dim]LLM thinking...[/dim]"):
-        analysis = llm.invoke([{"role": "user", "content": prompt}])
+        analysis = llm.invoke([
+            {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
+            {"role": "user", "content": review_user_message(
+                state["pr_title"], state["pr_files"], state["pr_diff"],
+            )},
+        ])
 
     console.print(f"  [green]✓[/green] confidence = {analysis.confidence:.0%}")
     return {"analysis": analysis}

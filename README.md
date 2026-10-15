@@ -83,6 +83,7 @@ Thresholds live in `common/schemas.py` (`AUTO_APPROVE_THRESHOLD = 0.73`, `ESCALA
 │   ├── llm.py               # ChatOpenAI factory (OpenRouter)
 │   ├── github.py            # httpx REST API client: fetch_pr / post_review_comment
 │   ├── db.py                # aiosqlite connection + write_audit_event
+│   ├── prompts.py           # shared review prompt + confidence-band rubric (used by all exercises)
 │   └── schemas.py           # ReviewState (TypedDict) + PRAnalysis + AuditEntry (Pydantic)
 │
 ├── exercises/               # YOUR WORK — skeleton code with TODOs
@@ -266,6 +267,22 @@ The skeleton wires up the Streamlit boilerplate (session state, page layout, top
 - The graph invocation
 - The two interrupt renderers (`render_approval_card`, `render_escalation_card`)
 - The resume logic
+
+#### How the finished UI behaves
+
+- **Escalation ends with a confirm step.** After the reviewer answers the questions and the LLM re-synthesizes, the UI shows the refined review (and the exact comment text) and posts **only after** "Confirm & post". This is `build_graph(cp, confirm_refined=True)`; the CLI exercises keep the plain `escalate → synthesize → commit` flow from the diagram above.
+- **Edit is a real editor.** "Edit" opens the draft comment in a text area; whatever the reviewer saves is posted verbatim. An empty edit posts nothing.
+- **Sessions survive reloads.** The active thread is mirrored into `?thread=<id>`; the pending question (or final result) is rebuilt from the LangGraph checkpointer. Clicking a session in the sidebar does the same, and an "Audit timeline" expander shows its `audit_events` rows. A session that stopped mid-run offers "Continue from the last checkpoint".
+- **Success card links to the comment.** `post_review_comment` returns the comment's `html_url`, shown as "View comment on GitHub". A failed post shows an error, never a success card.
+
+#### Confidence calibration
+
+All exercises share one rubric in `common/prompts.py`: ≥ 0.73 for mechanical changes (docs, typos, pure refactors), 0.58–0.72 for anything that changes persisted data or schema, adds behaviour without tests, or leaves an open question, and < 0.58 reserved for security, auth and data-loss risks. The analysis call uses `temperature=0` so a given PR routes the same way each time. With that rubric, PR #1 lands at ~65% (`human_approval`) and PR #2 at ~42% (`escalate`). Routing is still model-dependent — if your `LLM_MODEL` disagrees, adjust the rubric rather than the thresholds.
+
+#### Audit-trail notes
+
+- A node that calls `interrupt()` re-runs from the top on resume. Rows written *before* the interrupt are therefore written with `audit(..., once=True)` so replays show each pending step once.
+- `audit.replay --list` and the sidebar report the **worst** risk of a session by severity (`high` > `med` > `low`), not alphabetically.
 
 ## How the assignment maps to files
 
